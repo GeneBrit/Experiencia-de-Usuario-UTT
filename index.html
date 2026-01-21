@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rutas Tijuana - Planeador Urbano</title>
+
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+
+    <!-- Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+
+    <!-- Estilos personalizados para ajustes específicos del mapa -->
+    <style>
+        /* El mapa debe tener una altura definida para renderizarse correctamente */
+        #map {
+            height: 100%;
+            width: 100%;
+            z-index: 0;
+        }
+        
+        /* Personalización del contenedor de instrucciones de Leaflet para que coincida con Tailwind */
+        .leaflet-routing-container {
+            background-color: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col font-sans">
+
+    <!-- Header / Barra de Navegación -->
+    <header class="bg-blue-800 text-white p-4 shadow-md z-20 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <!-- Icono sencillo de mapa -->
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 7m0 13V7" />
+            </svg>
+            <div>
+                <h1 class="text-xl font-bold">Rutas Tijuana</h1>
+                <p class="text-xs text-blue-200">Planeador OpenSource</p>
+            </div>
+        </div>
+        
+        <!-- Botones de Acción Global -->
+        <div class="flex gap-2">
+            <button onclick="clearRoute()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition shadow">
+                Limpiar Mapa
+            </button>
+            <button onclick="exportRoute()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm transition shadow flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Exportar
+            </button>
+        </div>
+    </header>
+
+    <!-- Contenedor Principal -->
+    <main class="flex-1 flex flex-col md:flex-row relative overflow-hidden">
+        
+        <!-- Sidebar / Panel de Control -->
+        <aside class="w-full md:w-80 bg-white shadow-xl z-10 flex flex-col h-1/3 md:h-full transition-all duration-300" id="sidebar">
+            <div class="p-4 border-b border-gray-200 bg-gray-50">
+                <h2 class="font-semibold text-gray-700 mb-2">Instrucciones</h2>
+                <p class="text-sm text-gray-500 mb-4">
+                    Haz clic en el mapa para establecer el 
+                    <span class="font-bold text-green-600">Inicio</span> y luego el 
+                    <span class="font-bold text-red-600">Destino</span>.
+                </p>
+                
+                <!-- Estado de la ruta -->
+                <div id="route-info" class="hidden bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+                    <p><strong>Distancia:</strong> <span id="total-dist">0 km</span></p>
+                    <p><strong>Tiempo estimado:</strong> <span id="total-time">0 min</span></p>
+                </div>
+            </div>
+
+            <!-- Lista de puntos (Waypoints) manuales -->
+            <div class="p-4 overflow-y-auto flex-1">
+                <div id="waypoints-list" class="space-y-2">
+                    <div class="text-center text-gray-400 italic mt-10">
+                        No hay puntos seleccionados
+                    </div>
+                </div>
+            </div>
+            
+            <div class="p-4 border-t border-gray-200 text-xs text-center text-gray-400">
+                Datos de © OpenStreetMap contributors
+            </div>
+        </aside>
+
+        <!-- Contenedor del Mapa -->
+        <div class="flex-1 relative h-2/3 md:h-full">
+            <div id="map"></div>
+            
+            <!-- Overlay de carga (oculto por defecto) -->
+            <div id="loader" class="absolute inset-0 bg-white bg-opacity-75 z-[1000] hidden flex items-center justify-center">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-800"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Scripts de Librerías -->
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+     
+    <!-- Leaflet Routing Machine JS -->
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+    <!-- Lógica de la Aplicación -->
+    <script>
+        // --- 1. Configuración Inicial ---
+        
+        // Coordenadas de Tijuana (Zona Río / Centro)
+        const TIJUANA_COORDS = [32.5149, -117.0382];
+        const DEFAULT_ZOOM = 13;
+
+        // Inicializar el mapa
+        const map = L.map('map').setView(TIJUANA_COORDS, DEFAULT_ZOOM);
+
+        // Capa base de OpenStreetMap
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        // --- 2. Variables de Estado ---
+        let routingControl = null;
+        let waypoints = []; // Array para guardar las coordenadas [lat, lng]
+
+        // --- 3. Funciones Principales ---
+
+        /**
+         * Maneja el clic en el mapa para agregar puntos.
+         */
+        map.on('click', function(e) {
+            const coord = e.latlng;
+            
+            // Limitamos a 2 puntos para este ejemplo simple (Inicio -> Fin), 
+            // pero podría expandirse a múltiples paradas.
+            if (waypoints.length >= 2) {
+                // Si ya hay una ruta, reiniciamos con el nuevo clic como inicio
+                waypoints = [coord];
+                updateRoute();
+                showToast("Nueva ruta iniciada. Selecciona destino.");
+            } else {
+                waypoints.push(coord);
+                updateRoute();
+                
+                if (waypoints.length === 1) showToast("Punto de inicio establecido");
+                if (waypoints.length === 2) showToast("Calculando ruta...");
+            }
+        });
+
+        /**
+         * Actualiza el control de enrutamiento y la UI.
+         */
+        function updateRoute() {
+            // Actualizar lista visual en el sidebar
+            renderWaypointsList();
+
+            // Si ya existe un control de ruta, lo removemos para crear uno nuevo
+            if (routingControl) {
+                map.removeControl(routingControl);
+                routingControl = null;
+            }
+
+            // Solo calculamos ruta si hay al menos 2 puntos (o 1 punto para mostrar marcador)
+            if (waypoints.length > 0) {
+                
+                // Configuración de Leaflet Routing Machine
+                routingControl = L.Routing.control({
+                    waypoints: waypoints,
+                    routeWhileDragging: true, // Permite arrastrar la línea azul para cambiar ruta
+                    language: 'es', // Instrucciones en español
+                    showAlternatives: true,
+                    fitSelectedRoutes: true,
+                    lineOptions: {
+                        styles: [{color: '#2563EB', opacity: 0.7, weight: 5}] // Azul Tailwind
+                    },
+                    // Personalizamos los marcadores
+                    createMarker: function(i, wp, nWps) {
+                        let color = (i === 0) ? 'green' : (i === nWps - 1) ? 'red' : 'blue';
+                        // Usamos iconos simples por defecto de Leaflet pero podríamos usar custom icons
+                        return L.marker(wp.latLng, {
+                            draggable: true
+                        }).bindPopup((i === 0) ? "Inicio" : "Destino");
+                    }
+                }).addTo(map);
+
+                // Escuchar eventos de la ruta encontrada
+                routingControl.on('routesfound', function(e) {
+                    const routes = e.routes;
+                    const summary = routes[0].summary;
+                    
+                    // Actualizar panel de información
+                    document.getElementById('route-info').classList.remove('hidden');
+                    // Convertir metros a km con 1 decimal
+                    document.getElementById('total-dist').innerText = (summary.totalDistance / 1000).toFixed(1) + ' km';
+                    // Convertir segundos a minutos
+                    document.getElementById('total-time').innerText = Math.round(summary.totalTime / 60) + ' min';
+                });
+            }
+        }
+
+        /**
+         * Renderiza la lista de puntos en el sidebar.
+         */
+        function renderWaypointsList() {
+            const container = document.getElementById('waypoints-list');
+            container.innerHTML = '';
+
+            if (waypoints.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-400 italic mt-10">Haz clic en el mapa para comenzar</div>';
+                document.getElementById('route-info').classList.add('hidden');
+                return;
+            }
+
+            waypoints.forEach((wp, index) => {
+                const type = index === 0 ? 'Inicio' : 'Destino';
+                const colorClass = index === 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50';
+                
+                const div = document.createElement('div');
+                div.className = `flex justify-between items-center p-2 rounded border border-gray-200 ${colorClass}`;
+                div.innerHTML = `
+                    <span class="font-bold text-sm">${type}</span>
+                    <span class="text-xs font-mono text-gray-500">${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}</span>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        /**
+         * Limpia la ruta y los marcadores.
+         */
+        function clearRoute() {
+            if (routingControl) {
+                map.removeControl(routingControl);
+                routingControl = null;
+            }
+            waypoints = [];
+            renderWaypointsList();
+            showToast("Mapa limpiado");
+        }
+
+        /**
+         * Simula la exportación de la ruta a JSON.
+         */
+        function exportRoute() {
+            if (waypoints.length < 2) {
+                alert("Debes crear una ruta completa antes de exportar.");
+                return;
+            }
+
+            const data = {
+                app: "Rutas Tijuana",
+                date: new Date().toISOString(),
+                points: waypoints,
+                description: "Ruta generada desde la zona de Tijuana"
+            };
+
+            // Copiar al portapapeles como ejemplo de "guardado"
+            const jsonString = JSON.stringify(data, null, 2);
+            console.log(jsonString); // Para debug
+            
+            // Creamos un blob para descargar el archivo
+            const blob = new Blob([jsonString], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ruta_tijuana_${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            showToast("Ruta descargada (JSON)");
+        }
+
+        /**
+         * Utilidad para mostrar notificaciones simples (Toast).
+         */
+        function showToast(message) {
+            // Crear elemento
+            const toast = document.createElement('div');
+            toast.className = "fixed bottom-5 right-5 bg-gray-800 text-white px-4 py-2 rounded shadow-lg text-sm z-50 transition-opacity duration-500";
+            toast.innerText = message;
+            document.body.appendChild(toast);
+
+            // Eliminar después de 3 segundos
+            setTimeout(() => {
+                toast.classList.add('opacity-0');
+                setTimeout(() => toast.remove(), 500);
+            }, 3000);
+        }
+
+    </script>
+</body>
+</html>
